@@ -198,6 +198,25 @@ connections = []     # Lista de usuarios conectados: [{"conn": socket, "addr": t
 global_messages = []  # Historico de mensagens publicas
 private_messages = [] # Historico de mensagens privadas
 
+# Estruturas dos grupos
+groups = {}
+MAX_GROUPS_MESSAGES = 100
+
+def create_group(group_name, creator_name):
+    """
+    Cria um grupo e registra o criador como o primeiro membro
+    """
+    if group_name in groups:
+        return False, "Já existe um grupo com esse nome."
+
+    groups[group_name] = {
+        "creator": creator_name,
+        "members": [creator_name],
+        "pending_invites": [],
+        "messages": []
+    }
+    return True, f"Grupo '{group_name}' criado com sucesso."
+
 def search_name_in_connections(name):
     """
     Busca um usuario conectado pelo nome
@@ -366,6 +385,125 @@ def handle_clients(conn, addr):
                 # Enviar historico de mensagens globais
                 view_global_history(user_conn)
 
+            elif message["type"] == "create_group":
+                group_name = message["message"]
+                creator_name = user_conn["name"]
+                
+                success, response = create_group(group_name, creator_name)
+                
+                conn.send(f"msg=[Servidor]: {response}".encode(FORMAT))
+
+            elif message["type"] == "invite_group":
+                if user_conn is None:
+                    conn.send(
+                        "msg=[Servidor]: Defina seu nome primeiro.".encode(FORMAT)
+                    )
+                    continue
+
+                group_name = message["message"]
+                target_name = message["control"]
+
+                group = groups.get(group_name)
+
+                if group is None:
+                    response = f"Grupo '{group_name}' não encontrado."
+
+                elif group["creator"] != user_conn["name"]:
+                    response = "Somente o criador pode convidar pessoas."
+
+                elif target_name in group["members"]:
+                    response = f"{target_name} já faz parte do grupo."
+
+                elif target_name in group["pending_invites"]:
+                    response = f"{target_name} já foi convidado."
+
+                else:
+                    target_conn = search_name_in_connections(target_name)
+
+                    if target_conn is None:
+                        response = f"Usuário '{target_name}' não está online."
+                    else:
+                        group["pending_invites"].append(target_name)
+
+                        target_conn["conn"].send(
+                            f"msg=[ConviteGrupo] {user_conn['name']} convidou você para o grupo '{group_name}'.".encode(FORMAT)
+                        )
+
+                        response = f"Convite enviado para {target_name}."
+
+                conn.send(f"msg=[Servidor]: {response}".encode(FORMAT))
+
+            
+            elif message["type"] == "respond_group_invite":
+                if user_conn is None:
+                    conn.send(
+                        "msg=[Servidor]: Defina seu nome primeiro.".encode(FORMAT)
+                    )
+                    continue
+
+                group_name = message["control"]
+                decision = message["message"]
+                username = user_conn["name"]
+
+                group = groups.get(group_name)
+
+                if group is None:
+                    response = f"Grupo '{group_name}' não encontrado."
+
+                elif username not in group["pending_invites"]:
+                    response = "Você não tem convite pendente para esse grupo."
+
+                elif decision == "accept":
+                    group["pending_invites"].remove(username)
+
+                    if username not in group["members"]:
+                        group["members"].append(username)
+
+                    response = f"Você entrou no grupo '{group_name}'!"
+
+                elif decision == "reject":
+                    group["pending_invites"].remove(username)
+                    response = f"Você recusou o convite para '{group_name}'."
+
+                else:
+                    response = "Resposta ao convite inválida."
+
+                conn.send(
+                    f"msg=[Servidor]: {response}".encode(FORMAT)
+                )
+
+            elif message["type"] == "group_history":
+                if user_conn is None:
+                    conn.send(
+                        "msg=[Servidor]: Defina seu nome primeiro.".encode(FORMAT)
+                    )
+                    continue
+
+                group_name = message["control"]
+                group = groups.get(group_name)
+
+                if group is None:
+                    response = f"Grupo '{group_name}' não encontrado."
+
+                elif user_conn["name"] not in group["members"]:
+                    response = "Você não faz parte deste grupo."
+
+                elif not group["messages"]:
+                    response = f"O grupo '{group_name}' ainda não tem mensagens."
+
+                else:
+                    history_lines = [
+                        f"{msg['sender']}: {msg['content']}"
+                        for msg in group["messages"]
+                    ]
+
+                    response = (
+                        f"[Histórico do grupo {group_name}]\n"
+                        + "\n".join(history_lines)
+                    )
+
+                conn.send(f"msg={response}".encode(FORMAT))
+
             elif message["type"] == "online_usr":
                 # Verificar se o usuário já se registrou
                 if user_conn is None:
@@ -395,6 +533,50 @@ def handle_clients(conn, addr):
                     gui.log(f"[Mensagem Global] {user_conn['name']}: {message['message'][:50]}...")
                     gui.increment_message_count()
                     send_message_to_all(user_conn)
+
+                elif message["control"].startswith("group:"):
+                    group_name = message["control"][6:]
+                    group = groups.get(group_name)
+
+                    if group is None:
+                        error_msg = f"❌ Grupo '{group_name}' não encontrado."
+                        conn.send(f"msg=[Servidor]: {error_msg}".encode(FORMAT))
+                        continue
+
+                    elif user_conn["name"] not in group["members"]:
+                        error_msg = "❌ Você não faz parte deste grupo."
+                        conn.send(f"msg=[Servidor]: {error_msg}".encode(FORMAT))
+                        continue
+
+                    else:
+                        new_message = {
+                            "sender": user_conn["name"],
+                            "destination": group_name,
+                            "type": "group_msg",
+                            "content": message["message"]
+                        }
+
+                    group["messages"].append(new_message)
+
+                    if len(group["messages"]) > MAX_GROUPS_MESSAGES:
+                        group["messages"].pop(0)
+
+                    gui.log(
+                        f"[Mensagem de Grupo] {group_name} - "
+                        f"{user_conn['name']}: {message['message'][:50]}..."
+                    )
+
+                    gui.increment_message_count()
+
+                    for member_name in group["members"]:
+                        member_conn = search_name_in_connections(member_name)
+
+                        if member_conn is not None:
+                            member_conn["conn"].send(
+                                f"msg=[Grupo: {group_name}] "
+                                f"{user_conn['name']}: {message['message']}".encode(FORMAT)
+                            )
+
                 else:
                     # Mensagem privada para usuario especifico
                     destination = message["control"]
