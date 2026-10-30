@@ -198,11 +198,53 @@ class ChatClientGUI:
         self.refresh_button = Button(users_frame, text="🔄 Atualizar", 
                                    command=self.refresh_users,
                                    font=("Arial", 10, "bold"),
-                                   bg="#f39c12", fg="white",
+                                   bg="#f79c0b", fg="white",
                                    relief="flat",
                                    state=DISABLED)
         self.refresh_button.pack(pady=10)
-        
+
+        # Botão para criar grupo
+        self.create_group_button = Button(users_frame, text="👥 Criar grupo",
+                                    command=self.create_group,
+                                    font=("Arial", 10, "bold"),
+                                    bg="#d66e91",
+                                    fg="white",
+                                    relief="flat",
+                                    state=DISABLED
+                                    )
+        self.create_group_button.pack(pady=5)
+
+         # Botão para convites
+        self.invite_group_button = Button(users_frame, text="✉️ Convidar para grupo",
+                                    command=self.invite_to_group,
+                                    font=("Arial", 10, "bold"),
+                                    bg="#185b64",
+                                    fg="white",
+                                    relief="flat",
+                                    state=DISABLED
+                                    )
+        self.invite_group_button.pack(pady=5)
+
+        self.send_group_message_button = Button(users_frame, text="💬 Mensagem para grupo",
+                                    command=self.send_group_message,
+                                    font=("Arial", 10, "bold"),
+                                    bg="#680717",
+                                    fg="white",
+                                    relief="flat",
+                                    state=DISABLED
+                    )
+        self.send_group_message_button.pack(pady=5)
+
+        self.group_history_button = Button(users_frame, text="📜 Ver histórico",
+                                    command=self.view_group_history,
+                                    font=("Arial", 10, "bold"),
+                                    bg="#305770",
+                                    fg="white",
+                                    relief="flat",
+                                    state=DISABLED
+)
+        self.group_history_button.pack(pady=5)
+    
         # Informações na parte inferior
         info_frame = Frame(self.window, bg="#2c3e50")
         info_frame.pack(pady=10, fill="x")
@@ -255,6 +297,10 @@ class ChatClientGUI:
                 self.private_button.config(state=state)
                 self.refresh_button.config(state=state)
                 self.message_entry.config(state=state)
+                self.create_group_button.config(state=state)
+                self.invite_group_button.config(state=state)
+                self.send_group_message_button.config(state=state)
+                self.group_history_button.config(state=state)
             except:
                 pass
         
@@ -347,6 +393,96 @@ class ChatClientGUI:
             self.log_message(f"[Você → {target_user}]: {message}", "#9b59b6")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao enviar mensagem privada: {e}")
+
+    def send_group_message(self):
+        """Envia mensagem para um grupo."""
+        
+        if not self.name_registered:
+            messagebox.showwarning(
+                "Aviso",
+                "Configure seu nome primeiro!"
+            )
+            return
+
+        group_name = simpledialog.askstring(
+            "Mensagem para grupo",
+            "Digite o nome do grupo:",
+            parent=self.window
+        )
+
+        if not group_name or not group_name.strip():
+            return
+
+        group_name = group_name.strip()
+
+        message = simpledialog.askstring(
+            "Mensagem para grupo",
+            f"Mensagem para o grupo {group_name}:",
+            parent=self.window
+        )
+
+        if not message or not message.strip():
+            return
+
+        try:
+            message_formatted = {
+                "type": "msg",
+                "control": f"group:{group_name}",
+                "message": message
+            }
+
+            self.client.send(
+                json.dumps(message_formatted).encode("utf-8")
+            )
+
+            self.log_message(
+                f"[Você → Grupo {group_name}]: {message}",
+                "#b40e45"
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                f"Erro ao enviar mensagem para o grupo: {e}"
+            )
+
+    def view_group_history(self):
+        """Solicita o histórico de mensagens de um grupo."""
+
+        if not self.name_registered:
+            messagebox.showwarning(
+                "Aviso",
+                "Configure seu nome primeiro!"
+            )
+            return
+
+        group_name = simpledialog.askstring(
+            "Histórico do grupo",
+            "Digite o nome do grupo:",
+            parent=self.window
+        )
+
+        if not group_name or not group_name.strip():
+            return
+
+        group_name = group_name.strip()
+
+        try:
+            message_formatted = {
+                "type": "group_history",
+                "control": group_name,
+                "message": ""
+            }
+
+            self.client.send(
+                json.dumps(message_formatted).encode("utf-8")
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                f"Erro ao solicitar histórico: {e}"
+            )
             
     def send_file(self):
         """Envia arquivo"""
@@ -410,7 +546,120 @@ class ChatClientGUI:
             
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao enviar arquivo: {e}")
-            
+
+    def create_group(self):
+        """Solicita a criação de um grupo."""
+        if not self.name_registered:
+            messagebox.showwarning(
+                "Aviso",
+                "Configure seu nome primeiro!"
+            )
+            return
+
+        group_name = simpledialog.askstring(
+            "Criar grupo",
+            "Digite o nome do grupo:",
+            parent=self.window
+        )
+
+        if not group_name or not group_name.strip():
+            return
+
+        group_name = group_name.strip()
+
+        try:
+            message_formatted = {
+                "type": "create_group",
+                "control": "dontcare",
+                "message": group_name
+            }
+
+            self.client.send(
+                json.dumps(message_formatted).encode("utf-8")
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                f"Erro ao criar grupo: {e}"
+            )
+
+    def invite_to_group(self):
+        """Envia um convite para um grupo."""
+        if not self.name_registered:
+            messagebox.showwarning(
+                "Aviso",
+                "Configure seu nome primeiro!"
+            )
+            return
+
+        group_name = simpledialog.askstring(
+            "Convidar para grupo",
+            "Digite o nome do grupo:",
+            parent=self.window
+        )
+
+        if not group_name or not group_name.strip():
+            return
+
+        group_name = group_name.strip()
+
+        target_name = simpledialog.askstring(
+            "Convidar para grupo",
+            "Digite o nome do usuário que deseja convidar:",
+            parent=self.window
+        )
+
+        if not target_name or not target_name.strip():
+            return
+
+        target_name = target_name.strip()
+
+        try:
+            message_formatted = {
+                "type": "invite_group",
+                "control": target_name,
+                "message": group_name
+            }
+
+            self.client.send(
+                json.dumps(message_formatted).encode("utf-8")
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                f"Erro ao enviar convite: {e}"
+            )
+
+    def ask_group_invite(self, group_name, invitation_text):
+        """Pergunta se quer aceitar o convite."""
+        self.log_message(invitation_text, "#b40e45")
+
+        accepted = messagebox.askyesno(
+            "Convite para grupo",
+            f"{invitation_text}\n\nDeseja aceitar o convite?",
+            parent=self.window
+        )
+
+        try:
+            message_formatted = {
+                "type": "respond_group_invite",
+                "control": group_name,
+                "message": "accept" if accepted else "reject"
+            }
+
+            self.client.send(
+                json.dumps(message_formatted).encode("utf-8")
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                f"Erro ao responder ao convite: {e}",
+                parent=self.window
+            )
+
     def refresh_users(self):
         """Solicita lista atualizada de usuários"""
         if not self.name_registered:
@@ -474,7 +723,25 @@ class ChatClientGUI:
                 
                 if key == "msg":
                     # Processar mensagens de texto
-                    if "[Servidor]:" in value:
+
+                    if value.startswith("[ConviteGrupo]"):
+                        try:
+                            group_name = value.split(
+                                " para o grupo '", 1
+                            )[1].rsplit("'.", 1)[0]
+
+                            self.window.after(
+                                0,
+                                lambda gn=group_name, v=value:
+                                    self.ask_group_invite(gn, v)
+                            )
+                        except (IndexError, ValueError):
+                            self.log_message(
+                                "❌ Convite recebido em formato inválido",
+                                "#e74c3c"
+                            )
+
+                    elif "[Servidor]:" in value:
                         if "já está sendo usado" in value:
                             self.waiting_for_name = True
                             self.name_registered = False
