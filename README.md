@@ -10,6 +10,7 @@ Um sistema de chat completo desenvolvido em Python com socket programming, supor
 
 - 🌐 **Mensagens Globais**: Envie mensagens para todos os usuários conectados
 - 🔒 **Mensagens Privadas**: Converse diretamente com usuários específicos
+- 📧 **Mensagens em grupo**: Crie um grupo com usuários específicos
 - 📎 **Envio de Arquivos**: Compartilhe arquivos de qualquer tipo (com interface gráfica)
 - 👥 **Lista de Usuários Online**: Veja quem está conectado em tempo real
 - 📜 **Histórico de Mensagens**: Mensagens globais são mantidas para novos usuários
