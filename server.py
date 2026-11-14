@@ -4,9 +4,8 @@ import socket
 import threading
 import time
 import json
-from tkinter import *
-from tkinter import scrolledtext
-import datetime
+
+from server_gui import ServerGUI
 
 SERVER_IP = "0.0.0.0" # Aceita conexoes de qualquer IP
 PORT = 5050 # Porta principal do chat
@@ -14,141 +13,8 @@ DISC_PORT = 5051 # Porta para descoberta automatica
 ADDR = (SERVER_IP, PORT)
 FORMAT = 'utf-8'          # Codificação de caracteres
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind(ADDR)
-
-class serverGUI:
-    """
-    Classe para gerenciar a interface grafica do servidor
-    - Exibe mensagens de status e conexoes ativas
-    - Permite interacao com o servidor via GUI
-    """
-    def __init__(self):
-        self.window = window_create()
-
-    # Frame para informações do servidor
-        info_frame = Frame(self.window, bg="#34495e", relief="raised", bd=2)
-        info_frame.pack(pady=10, padx=20, fill="x")
-
-    # Informações do servidor
-        server_info = Label(info_frame, text=f"📡 Servidor ativo em: {SERVER_IP}:{PORT}", 
-                           font=("Arial", 12, "bold"), 
-                           bg="#34495e", fg="#1abc9c")
-        server_info.pack(pady=8)
-        
-        discovery_info = Label(info_frame, text=f"🔍 Sistema de descoberta automática ativo na porta {DISC_PORT}", 
-                              font=("Arial", 10), 
-                              bg="#34495e", fg="#95a5a6")
-        discovery_info.pack(pady=2)
-
-    # Frame para estatísticas
-        stats_frame = Frame(self.window, bg="#2c3e50")
-        stats_frame.pack(pady=10, fill="x")
-        
-        self.connections_label = Label(stats_frame, text="👥 Conexões ativas: 0", 
-                                        font=("Arial", 12, "bold"), 
-                                        bg="#2c3e50", fg="#e74c3c")
-        self.connections_label.pack(side=LEFT, padx=20)
-        
-        self.messages_label = Label(stats_frame, text="💬 Mensagens: 0", 
-                                    font=("Arial", 12, "bold"), 
-                                    bg="#2c3e50", fg="#3498db")
-        self.messages_label.pack(side=LEFT, padx=20)
-    
-    # Área de log com scroll
-        log_frame = Frame(self.window, bg="#2c3e50")
-        log_frame.pack(pady=10, padx=20, fill="both", expand=True)
-        
-        log_label = Label(log_frame, text="📋 LOG DO SERVIDOR:", 
-                         font=("Arial", 12, "bold"), 
-                         bg="#2c3e50", fg="#f39c12")
-        log_label.pack(anchor="w", pady=(0, 5))
-        
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame, 
-            height=25, 
-            width=100,
-            font=("Consolas", 10),
-            bg="#1e1e1e", 
-            fg="#00ff00",
-            insertbackground="#00ff00",
-            selectbackground="#404040"
-        )
-        self.log_text.pack(fill="both", expand=True)
-
-        clear_btn = Button(self.window, text="🗑️ Limpar Log", 
-                            command=self.clear_log,
-                            font=("Arial", 10, "bold"),
-                            bg="#e74c3c", fg="white",
-                            relief="flat", padx=20)
-        clear_btn.pack(pady=10)
-
-    # Variáveis de controle
-        self.message_count = 0
-        self.running = True
-        
-    # Log inicial
-        self.log("[SERVIDOR] Iniciando servidor de chat...")
-        self.log(f"[SERVIDOR] Sistema de descoberta ativo na porta 5051")
-        self.log(f"[SERVIDOR] Servidor principal ouvindo em {SERVER_IP}:{PORT}")
-        self.log("[SERVIDOR] Aguardando conexões...")
-
-    def log(self, message):
-        """Adiciona uma mensagem ao log com timestamp"""
-        if not self.running:
-            return
-            
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}\n"
-        
-        # Atualizar na thread principal do Tkinter
-        self.window.after(0, self._update_log, formatted_message)
-        
-        # Também imprimir no console
-        print(f"[{timestamp}] {message}")
-
-    def _update_log(self, message):
-        """Atualiza o log na interface (deve ser chamado na thread principal)"""
-        try:
-            self.log_text.insert(END, message)
-            self.log_text.see(END)
-        except:
-            pass
-    def update_stats(self, connections_count, messages_count=None):
-        """Atualiza as estatísticas na interface"""
-        if not self.running:
-            return
-            
-        if messages_count is not None:
-            self.message_count = messages_count
-        
-        def _update():
-            try:
-                self.connections_label.config(text=f"👥 Conexões ativas: {connections_count}")
-                self.messages_label.config(text=f"💬 Mensagens: {self.message_count}")
-            except:
-                pass
-        
-        self.window.after(0, _update)
-    def increment_message_count(self):
-        """Incrementa o contador de mensagens"""
-        self.message_count += 1
-        self.update_stats(len(connections))
-    
-    def clear_log(self):
-        """Limpa o log da interface"""
-        self.log_text.delete(1.0, END)
-        self.log("[SERVIDOR] Log limpo pelo usuário")
-    
-    def on_closing(self):
-        """Manipula o fechamento da janela"""
-        self.running = False
-        self.log("[SERVIDOR] Encerrando servidor...")
-        try:
-            server.close()
-        except:
-            pass
-        self.window.destroy()
+server = None
+discovery_socket = None
 
 # FORMATO DAS MENSAGENS:
 # 
@@ -172,18 +38,19 @@ def handle_discovery():
     - Escuta por mensagens "CHAT_DISCOVER" 
     - Responde com "CHAT_SERVER" para identificar o servidor
     """
-    discover_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    discover_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    discover_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    discover_socket.bind(('', 5051))
+    global discovery_socket
+    discovery_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    discovery_socket.bind(('', 5051))
     
     def discovery_loop():
-        while True:
+        while gui.running:
             try:
-                data, addr = discover_socket.recvfrom(1024)
+                data, addr = discovery_socket.recvfrom(1024)
                 if data == b"CHAT_DISCOVER":
                     gui.log(f"[Descoberta] Requisição de {addr[0]}")
-                    discover_socket.sendto(b"CHAT_SERVER", addr)
+                    discovery_socket.sendto(b"CHAT_SERVER", addr)
             except Exception as e:
                 if gui.running:
                     gui.log(f"[Erro Descoberta] {e}")
@@ -197,6 +64,26 @@ def handle_discovery():
 connections = []     # Lista de usuarios conectados: [{"conn": socket, "addr": tuple, "name": str}]
 global_messages = []  # Historico de mensagens publicas
 private_messages = [] # Historico de mensagens privadas
+
+# Estruturas dos grupos
+groups = {}
+MAX_GROUPS_MESSAGES = 100
+MAX_GROUP_INVITES_PER_REQUEST = 5
+
+def create_group(group_name, creator_name):
+    """
+    Cria um grupo e registra o criador como o primeiro membro
+    """
+    if group_name in groups:
+        return False, "Já existe um grupo com esse nome."
+
+    groups[group_name] = {
+        "creator": creator_name,
+        "members": [creator_name],
+        "pending_invites": [],
+        "messages": []
+    }
+    return True, f"Grupo '{group_name}' criado com sucesso."
 
 def search_name_in_connections(name):
     """
@@ -366,6 +253,180 @@ def handle_clients(conn, addr):
                 # Enviar historico de mensagens globais
                 view_global_history(user_conn)
 
+            elif message["type"] == "create_group":
+                if user_conn is None:
+                    conn.send("msg=[Servidor]: Defina seu nome primeiro.".encode(FORMAT))
+                    continue
+
+                group_name = message["message"]
+                creator_name = user_conn["name"]
+                
+                success, response = create_group(group_name, creator_name)
+                
+                conn.send(f"msg=[Servidor]: {response}".encode(FORMAT))
+
+            elif message["type"] == "invite_group":
+                if user_conn is None:
+                    conn.send(
+                        "msg=[Servidor]: Defina seu nome primeiro.".encode(FORMAT)
+                    )
+                    continue
+
+                group_name = message["message"]
+                target_names = message.get("targets")
+
+                # Compatibilidade com solicitações antigas de convite individual
+                if target_names is None:
+                    single_target = message.get("control")
+                    target_names = [single_target] if isinstance(single_target, str) else []
+
+                group = groups.get(group_name)
+
+                if group is None:
+                    response = f"Grupo '{group_name}' não encontrado."
+
+                elif group["creator"] != user_conn["name"]:
+                    response = "Somente o criador pode convidar pessoas."
+
+                elif not isinstance(target_names, list) or not target_names:
+                    response = "Informe pelo menos um usuário para convidar."
+
+                elif len(target_names) > MAX_GROUP_INVITES_PER_REQUEST:
+                    response = (
+                        f"Você pode convidar no máximo "
+                        f"{MAX_GROUP_INVITES_PER_REQUEST} pessoas por vez."
+                    )
+
+                else:
+                    sent = []
+                    not_sent = []
+                    processed = set()
+
+                    for target_name in target_names:
+                        if not isinstance(target_name, str) or not target_name.strip():
+                            not_sent.append("Nome inválido")
+                            continue
+
+                        target_name = target_name.strip()
+
+                        if target_name in processed:
+                            not_sent.append(
+                                f"{target_name}: nome repetido na solicitação"
+                            )
+                            continue
+
+                        processed.add(target_name)
+
+                        if target_name in group["members"]:
+                            not_sent.append(
+                                f"{target_name}: já faz parte do grupo"
+                            )
+                            continue
+
+                        if target_name in group["pending_invites"]:
+                            not_sent.append(
+                                f"{target_name}: já foi convidado"
+                            )
+                            continue
+
+                        target_conn = search_name_in_connections(target_name)
+
+                        if target_conn is None:
+                            not_sent.append(
+                                f"{target_name}: não está online"
+                            )
+                            continue
+
+                        group["pending_invites"].append(target_name)
+
+                        target_conn["conn"].send(
+                            f"msg=[ConviteGrupo] {user_conn['name']} "
+                            f"convidou você para o grupo '{group_name}'."
+                            .encode(FORMAT)
+                        )
+
+                        sent.append(target_name)
+
+                    if sent:
+                        response = f"Convites enviados para: {', '.join(sent)}."
+                    else:
+                        response = "Nenhum convite foi enviado."
+
+                    if not_sent:
+                        response += "\nNão enviados: " + "; ".join(not_sent)
+
+                conn.send(f"msg=[Servidor]: {response}".encode(FORMAT))
+            
+            elif message["type"] == "respond_group_invite":
+                if user_conn is None:
+                    conn.send(
+                        "msg=[Servidor]: Defina seu nome primeiro.".encode(FORMAT)
+                    )
+                    continue
+
+                group_name = message["control"]
+                decision = message["message"]
+                username = user_conn["name"]
+
+                group = groups.get(group_name)
+
+                if group is None:
+                    response = f"Grupo '{group_name}' não encontrado."
+
+                elif username not in group["pending_invites"]:
+                    response = "Você não tem convite pendente para esse grupo."
+
+                elif decision == "accept":
+                    group["pending_invites"].remove(username)
+
+                    if username not in group["members"]:
+                        group["members"].append(username)
+
+                    response = f"Você entrou no grupo '{group_name}'!"
+
+                elif decision == "reject":
+                    group["pending_invites"].remove(username)
+                    response = f"Você recusou o convite para '{group_name}'."
+
+                else:
+                    response = "Resposta ao convite inválida."
+
+                conn.send(
+                    f"msg=[Servidor]: {response}".encode(FORMAT)
+                )
+
+            elif message["type"] == "group_history":
+                if user_conn is None:
+                    conn.send(
+                        "msg=[Servidor]: Defina seu nome primeiro.".encode(FORMAT)
+                    )
+                    continue
+
+                group_name = message["control"]
+                group = groups.get(group_name)
+
+                if group is None:
+                    response = f"Grupo '{group_name}' não encontrado."
+
+                elif user_conn["name"] not in group["members"]:
+                    response = "Você não faz parte deste grupo."
+
+                elif not group["messages"]:
+                    response = f"O grupo '{group_name}' ainda não tem mensagens."
+
+                else:
+                    history_lines = [
+                        f"{msg['sender']}: {msg['content']}"
+                        for msg in group["messages"]
+                    ]
+
+                    response = (
+                        f"[Histórico do grupo {group_name}]\n"
+                        + "\n".join(history_lines)
+                    )
+
+                conn.send(f"msg={response}".encode(FORMAT))
+
             elif message["type"] == "online_usr":
                 # Verificar se o usuário já se registrou
                 if user_conn is None:
@@ -395,6 +456,50 @@ def handle_clients(conn, addr):
                     gui.log(f"[Mensagem Global] {user_conn['name']}: {message['message'][:50]}...")
                     gui.increment_message_count()
                     send_message_to_all(user_conn)
+
+                elif message["control"].startswith("group:"):
+                    group_name = message["control"][6:]
+                    group = groups.get(group_name)
+
+                    if group is None:
+                        error_msg = f"❌ Grupo '{group_name}' não encontrado."
+                        conn.send(f"msg=[Servidor]: {error_msg}".encode(FORMAT))
+                        continue
+
+                    elif user_conn["name"] not in group["members"]:
+                        error_msg = "❌ Você não faz parte deste grupo."
+                        conn.send(f"msg=[Servidor]: {error_msg}".encode(FORMAT))
+                        continue
+
+                    else:
+                        new_message = {
+                            "sender": user_conn["name"],
+                            "destination": group_name,
+                            "type": "group_msg",
+                            "content": message["message"]
+                        }
+
+                    group["messages"].append(new_message)
+
+                    if len(group["messages"]) > MAX_GROUPS_MESSAGES:
+                        group["messages"].pop(0)
+
+                    gui.log(
+                        f"[Mensagem de Grupo] {group_name} - "
+                        f"{user_conn['name']}: {message['message'][:50]}..."
+                    )
+
+                    gui.increment_message_count()
+
+                    for member_name in group["members"]:
+                        member_conn = search_name_in_connections(member_name)
+
+                        if member_conn is not None:
+                            member_conn["conn"].send(
+                                f"msg=[Grupo: {group_name}] "
+                                f"{user_conn['name']}: {message['message']}".encode(FORMAT)
+                            )
+
                 else:
                     # Mensagem privada para usuario especifico
                     destination = message["control"]
@@ -499,46 +604,42 @@ def server_loop():
                 gui.log(f"[ERRO SERVIDOR] {e}")
             break
 
-def window_create():
-    """
-    Cria a janela principal do servidor
-    - Configura titulo e tamanho
-    - Adiciona label de status
-    """
-    window = Tk()
-    window.title("Servidor de Chat")
-    window.geometry("800x600")
-    window.configure(bg="#2c3e50")
-    
+def shutdown_server():
+    """Fecha os sockets do servidor sem depender da interface gráfica."""
+    if server is not None:
+        try:
+            server.close()
+        except OSError:
+            pass
+    if discovery_socket is not None:
+        try:
+            discovery_socket.close()
+        except OSError:
+            pass
 
-    title = Label(window, text="🖥️ SERVIDOR DE CHAT", 
-                     font=("Arial", 18, "bold"), 
-                     bg="#2c3e50", fg="#ecf0f1")
-    title.pack(pady=15)   
-    return window
 
 def start():
-    """
-    Funcao principal do servidor
-    - Cria a interface gráfica
-    - Inicia o sistema de descoberta automatica
-    - Inicia o servidor em thread separada
-    - Executa o loop da interface
-    """
-    global gui
-    
-    # Criar interface gráfica
-    gui = serverGUI()
-    
-    # Iniciar descoberta automática
+    """Inicia o servidor, a descoberta UDP e a interface gráfica."""
+    global gui, server
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(ADDR)
+
+    gui = ServerGUI(
+        SERVER_IP,
+        PORT,
+        DISC_PORT,
+        on_close=shutdown_server,
+        connection_count=lambda: len(connections),
+    )
+
     handle_discovery()
-    
-    # Iniciar servidor em thread separada
     server_thread = threading.Thread(target=server_loop, daemon=True)
     server_thread.start()
-    
-    # Executar interface gráfica (loop principal)
-    gui.window.mainloop()
+    gui.run()
+    shutdown_server()
+
 
 if __name__ == "__main__":
     try:
@@ -548,7 +649,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[Erro crítico] {e}")
     finally:
-        try:
-            server.close()
-        except:
-            pass
+        shutdown_server()
